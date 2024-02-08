@@ -107,17 +107,19 @@ bool ModuleLoader::loadModuleFromFile(std::string const &fileName,
 			break;
 		}
 
-		retVal = m_mapper.validateHeader();
-		if (!retVal)
-		{
-			break;
-		}
+		//PSET
+		//retVal = m_mapper.validateHeader();
+		//if (!retVal)
+		//{
+		//	break;
+		//}
 
-		retVal = m_mapper.parseSegmentHeaders();
-		if (!retVal)
-		{
-			break;
-		}
+		retVal = m_mapper.parseSelfSegmentHeaders();
+		//retVal = m_mapper.parseSegmentHeaders();
+		//if (!retVal)
+		//{
+		//	break;
+		//}
 
 		retVal = m_mapper.parseDynamicSection();
 		if (!retVal)

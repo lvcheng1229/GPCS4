@@ -31,7 +31,7 @@ bool ELFMapper::loadFile(std::string const &filePath, NativeModule *mod)
 
 		m_moduleData = mod;
 
-		if (!plat::LoadFile(filePath, mod->m_fileMemory))
+		if (!plat::LoadFile(filePath, mod->m_fileMemory2))
 		{
 			LOG_ERR("failed to load file %s", filePath.c_str());
 			break;
@@ -178,6 +178,145 @@ bool ELFMapper::parseSegmentHeaders()
 	} while (false);
 
 	return retVal;
+}
+
+//PSET
+uint32_t FlagsId(uint64_t flag)
+{
+	return (flag >> 20) & 0xFFF;
+}
+bool ELFMapper::parseSelfSegmentHeaders()
+{
+	bool retVal = true;
+	if (m_moduleData == nullptr)
+	{
+		LOG_ERR("null pointer error");
+		return false;
+	}
+
+	auto& fileMemory = m_moduleData->m_fileMemory2;
+	MODULE_INFO& info           = m_moduleData->m_moduleInfo;
+
+	SHeaderSelf* pHeaderSelf = (SHeaderSelf*)fileMemory.data();
+	uint16_t     numSegments = *(uint16_t*)(&pHeaderSelf->m_numberOfSegments);
+	
+	SSegStructureSelf* pSegStructureSelfs = (SSegStructureSelf*)((uint8_t*)pHeaderSelf + sizeof(SHeaderSelf));
+	for (uint32_t index = 0; index < numSegments; index++)
+	{
+		SSegStructureSelf& pSegStructureSelf = pSegStructureSelfs[index];
+	}
+
+	elf64_hdr* elf64Header = (elf64_hdr*)(pSegStructureSelfs + numSegments);
+	m_moduleData->m_elfHeader = elf64Header;
+
+	elf64_phdr* elf64ProgramHeader = (elf64_phdr*)(elf64Header + 1);
+
+	m_moduleData->m_segmentHeaders.resize(elf64Header->e_phnum);
+	for (uint32_t index = 0; index < elf64Header->e_phnum; index++)
+	{
+		m_moduleData->m_segmentHeaders[index] = elf64ProgramHeader[index];
+	}
+	
+	uint32_t segmentsStart = std::numeric_limits<uint32_t>::max();
+	uint32_t segmentsEnd   = 0;
+
+	for (uint32_t index = 0; index < elf64Header->e_phnum; index++)
+	{
+		uint32_t segmentStart = elf64ProgramHeader[index].p_offset;  // the offset start from the [elf] header instead of [self] header
+		if (segmentStart > 0 && segmentStart < segmentsStart)
+		{
+			segmentsStart = segmentStart;
+		}
+
+		uint32_t segmentEnd = segmentStart + elf64ProgramHeader[index].p_filesz;
+		if (segmentEnd > segmentsEnd)
+		{
+			segmentsEnd = segmentEnd;
+		}
+	}
+
+	std::vector<uint8_t>& fileMemoryElf = m_moduleData->m_fileMemory;
+	fileMemoryElf.resize(segmentsEnd);
+	memcpy(fileMemoryElf.data(), elf64Header, segmentsStart);
+
+	for (uint32_t index = 0; index < numSegments; index++)
+	{
+		// we only take care of the data in the block segments
+		if ((pSegStructureSelfs[index].m_flags & uint64_t(ESegFlags::SF_BFLG)) != 0)
+		{
+			uint32_t flagID = FlagsId(pSegStructureSelfs[index].m_flags);
+			memcpy(
+				(uint8_t*)fileMemoryElf.data() + elf64ProgramHeader[flagID].p_offset,
+				(uint8_t*)fileMemory.data() + pSegStructureSelfs[index].m_offsets,
+				pSegStructureSelfs[index].m_encryptedCompressedSize);
+		}
+	}
+
+	for (auto& hdr : m_moduleData->m_segmentHeaders)
+	{
+		switch (hdr.p_type)
+		{
+			case PT_LOAD:
+			case PT_INTERP:
+			case PT_GNU_EH_FRAME:
+			case PT_SCE_RELRO:
+			// TODO: what is PT_SCE_MODULEPARAM used for?
+			case PT_SCE_MODULEPARAM:
+			break;
+
+			case PT_SCE_PROCPARAM:
+			{
+			info.pProcParam = reinterpret_cast<void*>(hdr.p_vaddr);
+			break;
+			}
+
+			case PT_DYNAMIC:
+			{
+			info.pDynamic     = (uint8_t*)fileMemoryElf.data() + hdr.p_offset;
+			info.nDynamicSize = hdr.p_filesz;
+			}
+			break;
+
+			case PT_TLS:
+			{
+			info.pTlsAddr     = reinterpret_cast<uint8_t*>(hdr.p_vaddr);
+			info.nTlsInitSize = hdr.p_filesz;
+			info.nTlsSize     = util::align(hdr.p_memsz, hdr.p_align);
+			info.nTlsAlign    = hdr.p_align;
+			}
+			break;
+
+			case PT_SCE_DYNLIBDATA:
+			{
+			info.pSceDynLib     = (uint8_t*)fileMemoryElf.data() + hdr.p_offset;
+			info.nSceDynLibSize = hdr.p_filesz;
+			}
+			break;
+
+			case PT_SCE_COMMENT:
+			{
+			info.pSceComment     = (uint8_t*)fileMemoryElf.data() + hdr.p_offset;
+			info.nSceCommentSize = hdr.p_filesz;
+			}
+			break;
+
+			case PT_SCE_LIBVERSION:
+			{
+			info.pSceLibVersion     = (uint8_t*)fileMemoryElf.data() + hdr.p_offset;
+			info.nSceLibVersionSize = hdr.p_filesz;
+			}
+			break;
+
+			default:
+			{
+			LOG_FIXME("segment type: %x is not supported", hdr.p_type);
+			retVal = false;
+			}
+			break;
+		}
+	}
+
+	return true;
 }
 
 bool ELFMapper::parseDynamicSection()

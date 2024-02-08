@@ -214,7 +214,8 @@ private:
 
 	plat::memory_ptr m_mappedMemory;
 	size_t m_mappedSize;
-	ByteArray m_fileMemory;
+	ByteArray        m_fileMemory2;
+	ByteArray        m_fileMemory;
 
 	Elf64_Ehdr *m_elfHeader;
 	MODULE_INFO m_moduleInfo;

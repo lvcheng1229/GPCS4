@@ -24,6 +24,6 @@
 // #define MODSYS_STUB_ON_NATIVE
 
 // Use debug stub on unknown
-#define MODSYS_STUB_ON_UNKNOWN
+//#define MODSYS_STUB_ON_UNKNOWN
 
 
